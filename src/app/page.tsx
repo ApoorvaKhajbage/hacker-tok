@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { StoryCard } from "@/components/StoryCard";
 import { InfiniteScroll } from "@/components/InfiniteScroll";
 import { CategoryFilter } from "@/components/CategoryFilter";
@@ -9,7 +9,7 @@ import { fetchStories } from "@/lib/api";
 import { Story, StoryType } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
-import { Heart } from "lucide-react"; // Heart Icon for Saved Posts
+import { Bookmark } from "lucide-react"; // Heart Icon for Saved Posts
 
 export default function Home() {
   const [storiesByCategory, setStoriesByCategory] = useState<{
@@ -20,9 +20,11 @@ export default function Home() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [savedPostsOpen, setSavedPostsOpen] = useState(false);
-  const [savedStories, setSavedStories] = useState<Story[]>([]); // State for saved stories
+  const [savedStories, setSavedStories] = useState<Story[]>([]);
   const { toast } = useToast();
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
+  // When category changes, reset the stories and page
   useEffect(() => {
     setStoriesByCategory({});
     setPage(1);
@@ -30,17 +32,35 @@ export default function Home() {
     loadStories(1);
   }, [category]);
 
+  // Initialize savedStories from localStorage on mount
   useEffect(() => {
-    // Sync saved stories state with localStorage
     const storedSavedStories = JSON.parse(
       localStorage.getItem("savedStories") || "[]"
     );
     setSavedStories(storedSavedStories);
-  }, []); // Only run on component mount to initialize the saved stories
+  }, []);
+
+  // IntersectionObserver to auto-load next stories when the sentinel comes into view
+  useEffect(() => {
+    if (!loading && hasMore && sentinelRef.current) {
+      const observer = new IntersectionObserver(
+        (entries) => {
+          if (entries[0].isIntersecting) {
+            loadStories(page);
+          }
+        },
+        {
+          root: null, // viewport
+          threshold: 1.0,
+        }
+      );
+      observer.observe(sentinelRef.current);
+      return () => observer.disconnect();
+    }
+  }, [hasMore, loading, page]);
 
   const loadStories = async (currentPage: number) => {
     if (loading) return;
-
     setLoading(true);
     const start = Date.now();
     try {
@@ -48,7 +68,6 @@ export default function Home() {
       console.log(
         `Fetched ${newStories.length} stories in ${Date.now() - start}ms`
       );
-
       if (newStories.length > 0) {
         setStoriesByCategory((prev) => ({
           ...prev,
@@ -62,6 +81,7 @@ export default function Home() {
       toast({
         title: "Error fetching stories",
         description: (error as Error).message,
+        variant: "destructive",
       });
     } finally {
       setLoading(false);
@@ -69,7 +89,6 @@ export default function Home() {
   };
 
   const handleRemoveFromSaved = (id: number) => {
-    // Remove from local storage
     const updatedSavedStories = savedStories.filter((story) => story.id !== id);
     setSavedStories(updatedSavedStories);
     localStorage.setItem("savedStories", JSON.stringify(updatedSavedStories));
@@ -77,42 +96,29 @@ export default function Home() {
 
   const handleCategoryChange = (newCategory: StoryType) => {
     setCategory(newCategory);
-    setPage(1); // Reset to the first page when category changes
+    setPage(1);
     setLoading(false);
   };
 
   const handleLike = (id: number) => {
-    const savedStories: Story[] = JSON.parse(
+    const stored = JSON.parse(
       localStorage.getItem("savedStories") || "[]"
-    );
-    const isLiked = savedStories.some((story) => story.id === id);
-
+    ) as Story[];
+    const isLiked = stored.some((story) => story.id === id);
     if (isLiked) {
-      const updatedSavedStories = savedStories.filter(
-        (story) => story.id !== id
-      );
-      setSavedStories(updatedSavedStories); // Update the state
-      localStorage.setItem("savedStories", JSON.stringify(updatedSavedStories));
+      const updated = stored.filter((story) => story.id !== id);
+      setSavedStories(updated);
+      localStorage.setItem("savedStories", JSON.stringify(updated));
     } else {
       const storyToAdd = storiesByCategory[category]?.find(
         (story) => story.id === id
       );
       if (storyToAdd) {
-        const updatedSavedStories = [...savedStories, storyToAdd];
-        setSavedStories(updatedSavedStories); // Update the state
-        localStorage.setItem(
-          "savedStories",
-          JSON.stringify(updatedSavedStories)
-        );
+        const updated = [...stored, storyToAdd];
+        setSavedStories(updated);
+        localStorage.setItem("savedStories", JSON.stringify(updated));
       }
     }
-
-    // setStoriesByCategory((prev) => ({
-    //   ...prev,
-    //   [category]: prev[category]?.map((story) =>
-    //     story.id === id ? { ...story, isLiked: !isLiked } : story
-    //   ),
-    // }));
   };
 
   const handleShare = async (url: string) => {
@@ -159,12 +165,13 @@ export default function Home() {
               onClick={toggleSavedPosts}
               className="text-gray-600 dark:text-white"
             >
-              <Heart className="h-6 w-6" />
+              <Bookmark className="h-6 w-6" />
             </button>
             <AboutOverlay />
           </div>
         </div>
       </header>
+
       {/* Snap-scrolling container for full-screen cards */}
       <div className="snap-y snap-mandatory h-screen w-full overflow-y-auto">
         {(storiesByCategory[category] || []).map((story, index) => (
@@ -182,8 +189,11 @@ export default function Home() {
             />
           </div>
         ))}
+        {/* Sentinel element for triggering auto load */}
+        <div ref={sentinelRef} className="h-20"></div>
       </div>
 
+      {/* Load More Button visible on all devices */}
       {hasMore && !loading && (
         <div className="mt-4 text-center">
           <Button onClick={() => loadStories(page)}>Load More</Button>

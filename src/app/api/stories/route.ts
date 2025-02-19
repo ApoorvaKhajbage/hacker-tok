@@ -184,14 +184,7 @@ async function fetchMetadata(url: string) {
       $('meta[name="abstract" i]').attr("content")?.trim() ||
       $("p.abstract").text().trim() ||
       "";
-
-    // 3️⃣ SPECIAL CASE: YOUTUBE
-    if (
-      baseUrl.hostname === "www.youtube.com" ||
-      baseUrl.hostname === "youtu.be"
-    ) {
-      description = await fetchYouTubeDescription(url);
-    }
+      
     // 1️⃣ Skip description fetching if it's a PDF
     if (url.toLowerCase().endsWith(".pdf")) {
       description = "";
@@ -254,22 +247,4 @@ async function fetchMetadata(url: string) {
     };
   }
 }
-async function fetchYouTubeDescription(url: string): Promise<string> {
-  try {
-    const match = url.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/);
-    if (!match) return "";
 
-    const videoId = match[1];
-    const apiKey = process.env.YOUTUBE_API_KEY; // Use your API key
-    const apiUrl = `https://www.googleapis.com/youtube/v3/videos?id=${videoId}&part=snippet&key=${apiKey}`;
-
-    const response = await axios.get(apiUrl);
-    return (
-      response.data.items?.[0]?.snippet?.description ||
-      "No description available."
-    );
-  } catch (error) {
-    console.error("YouTube API fetch error:", error);
-    return "";
-  }
-}
