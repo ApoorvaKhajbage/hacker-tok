@@ -51,7 +51,7 @@ export default function Home() {
         },
         {
           root: null, // viewport
-          threshold: 1.0,
+          threshold: 0.1,
         }
       );
       observer.observe(sentinelRef.current);
@@ -173,7 +173,7 @@ export default function Home() {
       </header>
 
       {/* Snap-scrolling container for full-screen cards */}
-      <div className="snap-y snap-mandatory h-screen w-full overflow-y-auto">
+      <div className="pt-16 snap-y snap-mandatory h-screen w-full overflow-y-auto">
         {(storiesByCategory[category] || []).map((story, index) => (
           <div
             key={`${story.id}-${index}`}
@@ -193,9 +193,9 @@ export default function Home() {
         <div ref={sentinelRef} className="h-20"></div>
       </div>
 
-      {/* Load More Button visible on all devices */}
+      {/* Floating “Load More” button */}
       {hasMore && !loading && (
-        <div className="mt-4 text-center">
+        <div className="fixed bottom-0 left-0 right-0 z-20 bg-white/80 dark:bg-gray-800/80 p-4 text-center">
           <Button onClick={() => loadStories(page)}>Load More</Button>
         </div>
       )}
