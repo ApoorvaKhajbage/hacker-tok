@@ -94,19 +94,24 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const type = (searchParams.get("type") as StoryType) || "topstories";
   const page = parseInt(searchParams.get("page") || "1", 10);
-  const limit = 10; // Number of stories to fetch at once (adjust this as needed)
+  const limit = 30;
 
   try {
     const storyIds = await fetchStoryIds(type);
-
-    // Fetch stories in batches (limit based on page number)
     const start = (page - 1) * limit;
     const end = start + limit;
     const storiesToFetch = storyIds.slice(start, end);
 
-    const stories = await Promise.all(storiesToFetch.map(fetchStory));
+    const stories = await Promise.all(
+      storiesToFetch.map((id, index) => fetchStory(id, index))
+    );
 
-    return NextResponse.json(stories);
+    return NextResponse.json(stories, {
+      headers: {
+        // Cache for 5 minutes at the edge, and allow stale content while revalidating for 1 minute.
+        "Cache-Control": "s-maxage=300, stale-while-revalidate=60",
+      },
+    });
   } catch (error) {
     console.error("Error fetching stories:", error);
     return NextResponse.json(

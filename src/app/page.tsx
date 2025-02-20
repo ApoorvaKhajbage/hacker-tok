@@ -9,73 +9,92 @@ import { fetchStories } from "@/lib/api";
 import { Story, StoryType } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
-import { Bookmark } from "lucide-react"; // Heart Icon for Saved Posts
+import { Bookmark } from "lucide-react";
+
+// Initialize state for all categories.
+const initialPages: Record<StoryType, number> = {
+  topstories: 1,
+  newstories: 1,
+  beststories: 1,
+  askstories: 1,
+  showstories: 1,
+  jobstories: 1,
+};
+
+const initialHasMore: Record<StoryType, boolean> = {
+  topstories: true,
+  newstories: true,
+  beststories: true,
+  askstories: true,
+  showstories: true,
+  jobstories: true,
+};
 
 export default function Home() {
+  // Cache stories per category.
   const [storiesByCategory, setStoriesByCategory] = useState<{
     [key in StoryType]?: Story[];
   }>({});
+  // Cache current page number for each category.
+  const [pages, setPages] = useState<Record<StoryType, number>>(initialPages);
+  // Cache "hasMore" flags for each category.
+  const [hasMoreByCategory, setHasMoreByCategory] = useState<Record<StoryType, boolean>>(initialHasMore);
   const [category, setCategory] = useState<StoryType>("topstories");
   const [loading, setLoading] = useState(false);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
   const [savedPostsOpen, setSavedPostsOpen] = useState(false);
   const [savedStories, setSavedStories] = useState<Story[]>([]);
   const { toast } = useToast();
   const sentinelRef = useRef<HTMLDivElement>(null);
 
-  // When category changes, reset the stories and page
+  // When the category changes, if no stories have been loaded, load them.
   useEffect(() => {
-    setStoriesByCategory({});
-    setPage(1);
-    setHasMore(true);
-    loadStories(1);
+    if (!storiesByCategory[category]) {
+      setPages((prev) => ({ ...prev, [category]: 1 }));
+      setHasMoreByCategory((prev) => ({ ...prev, [category]: true }));
+      loadStories();
+    }
   }, [category]);
 
-  // Initialize savedStories from localStorage on mount
+  // Initialize savedStories from localStorage on mount.
   useEffect(() => {
-    const storedSavedStories = JSON.parse(
-      localStorage.getItem("savedStories") || "[]"
-    );
+    const storedSavedStories = JSON.parse(localStorage.getItem("savedStories") || "[]");
     setSavedStories(storedSavedStories);
   }, []);
 
-  // IntersectionObserver to auto-load next stories when the sentinel comes into view
+  // IntersectionObserver to auto-load next stories when the sentinel comes into view.
   useEffect(() => {
-    if (!loading && hasMore && sentinelRef.current) {
+    if (!loading && hasMoreByCategory[category] && sentinelRef.current) {
       const observer = new IntersectionObserver(
         (entries) => {
           if (entries[0].isIntersecting) {
-            loadStories(page);
+            loadStories();
           }
         },
         {
-          root: null, // viewport
-          threshold: 0.1,
+          root: null,
+          threshold: 1.0,
         }
       );
       observer.observe(sentinelRef.current);
       return () => observer.disconnect();
     }
-  }, [hasMore, loading, page]);
+  }, [hasMoreByCategory, loading, category, pages]);
 
-  const loadStories = async (currentPage: number) => {
+  const loadStories = async () => {
     if (loading) return;
     setLoading(true);
-    const start = Date.now();
+    const currentPage = pages[category] || 1;
     try {
-      const newStories = await fetchStories(category, page);
-      console.log(
-        `Fetched ${newStories.length} stories in ${Date.now() - start}ms`
-      );
+      const newStories = await fetchStories(category, currentPage);
+      console.log(`Fetched ${newStories.length} stories for ${category} on page ${currentPage}`);
       if (newStories.length > 0) {
         setStoriesByCategory((prev) => ({
           ...prev,
           [category]: [...(prev[category] || []), ...newStories],
         }));
-        setPage(currentPage + 1);
+        setPages((prev) => ({ ...prev, [category]: currentPage + 1 }));
       } else {
-        setHasMore(false);
+        setHasMoreByCategory((prev) => ({ ...prev, [category]: false }));
       }
     } catch (error) {
       toast({
@@ -96,23 +115,18 @@ export default function Home() {
 
   const handleCategoryChange = (newCategory: StoryType) => {
     setCategory(newCategory);
-    setPage(1);
-    setLoading(false);
+    // We retain the previously cached stories.
   };
 
   const handleLike = (id: number) => {
-    const stored = JSON.parse(
-      localStorage.getItem("savedStories") || "[]"
-    ) as Story[];
+    const stored = JSON.parse(localStorage.getItem("savedStories") || "[]") as Story[];
     const isLiked = stored.some((story) => story.id === id);
     if (isLiked) {
       const updated = stored.filter((story) => story.id !== id);
       setSavedStories(updated);
       localStorage.setItem("savedStories", JSON.stringify(updated));
     } else {
-      const storyToAdd = storiesByCategory[category]?.find(
-        (story) => story.id === id
-      );
+      const storyToAdd = storiesByCategory[category]?.find((story) => story.id === id);
       if (storyToAdd) {
         const updated = [...stored, storyToAdd];
         setSavedStories(updated);
@@ -157,14 +171,8 @@ export default function Home() {
         <div className="flex justify-between items-center">
           <h1 className="text-2xl font-bold">HackerReels</h1>
           <div className="flex items-center space-x-4">
-            <CategoryFilter
-              currentCategory={category}
-              onCategoryChange={handleCategoryChange}
-            />
-            <button
-              onClick={toggleSavedPosts}
-              className="text-gray-600 dark:text-white"
-            >
+            <CategoryFilter currentCategory={category} onCategoryChange={handleCategoryChange} />
+            <button onClick={toggleSavedPosts} className="text-gray-600 dark:text-white">
               <Bookmark className="h-6 w-6" />
             </button>
             <AboutOverlay />
@@ -175,28 +183,23 @@ export default function Home() {
       {/* Snap-scrolling container for full-screen cards */}
       <div className="pt-16 snap-y snap-mandatory h-screen w-full overflow-y-auto">
         {(storiesByCategory[category] || []).map((story, index) => (
-          <div
-            key={`${story.id}-${index}`}
-            className="snap-start h-screen mb-4 flex items-center justify-center"
-          >
+          <div key={`${story.id}-${index}`} className="snap-start h-screen mb-4 flex items-center justify-center">
             <StoryCard
               story={story}
-              isLiked={savedStories.some(
-                (savedStory) => savedStory.id === story.id
-              )}
+              isLiked={savedStories.some((savedStory) => savedStory.id === story.id)}
               onLike={handleLike}
               onShare={handleShare}
             />
           </div>
         ))}
-        {/* Sentinel element for triggering auto load */}
+        {/* Sentinel element for triggering auto-load */}
         <div ref={sentinelRef} className="h-20"></div>
       </div>
 
       {/* Floating “Load More” button */}
-      {hasMore && !loading && (
+      {hasMoreByCategory[category] && !loading && (
         <div className="fixed bottom-0 left-0 right-0 z-20 bg-white/80 dark:bg-gray-800/80 p-4 text-center">
-          <Button onClick={() => loadStories(page)}>Load More</Button>
+          <Button onClick={() => loadStories()}>Load More</Button>
         </div>
       )}
 
@@ -209,11 +212,11 @@ export default function Home() {
       />
 
       <InfiniteScroll
-        onLoadMore={() => loadStories(page)}
-        hasMore={hasMore}
+        onLoadMore={() => loadStories()}
+        hasMore={hasMoreByCategory[category]}
         loadStories={loadStories}
         loading={loading}
-        currentPage={page}
+        currentPage={pages[category] || 1}
       />
     </main>
   );
