@@ -3,6 +3,7 @@ import axios from "axios";
 import * as cheerio from "cheerio";
 import { Story, StoryType } from "@/lib/types";
 import { URL } from "url";
+import { getDomain } from "@/utils/utils";
 
 const HN_API_BASE = "https://hacker-news.firebaseio.com/v0";
 
@@ -20,17 +21,25 @@ function truncateDescription(description: string, maxLength: number): string {
     ? description.slice(0, maxLength) + "..."
     : description;
 }
+
 function isGibberish(text: string): boolean {
-  // For example, if text starts with '%PDF', it likely comes from a PDF
+  // Check for PDF markers
   if (text.startsWith("%PDF")) return true;
-  // If the text contains typical CSS code, consider it gibberish.
-  if (text.includes("font-family:") || text.includes("text-anchor:"))
-    return true;
-  // If the cleaned text is very short, it may not be a useful description.
+  
+  // Check for CSS code
+  if (text.includes("font-family:") || text.includes("text-anchor:")) return true;
+  
+  // Check if text appears to be a JSON-like object
+  const trimmed = text.trim();
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) return true;
+  
+  // Alternatively, check for multiple occurrences of internal keys like "AUI_"
+  const internalKeyMatches = trimmed.match(/AUI_[A-Z0-9_]+/g);
+  if (internalKeyMatches && internalKeyMatches.length > 1) return true;
+  
   return false;
 }
 
-// Fetch favicon
 // Fetch favicon
 async function fetchFavicon(url: string): Promise<string> {
   try {
@@ -64,7 +73,18 @@ async function fetchFavicon(url: string): Promise<string> {
 
     // Check if the favicon URL is valid
     const faviconResponse = await axios.head(faviconUrl);
-    return faviconResponse.status === 200 ? faviconUrl : "/placeholder.jpg";
+    if (faviconResponse.status === 200) {
+      return faviconUrl;
+    }
+    // filter the domain it should not include www.
+    const domain = getDomain(url);
+    console.log(domain);
+    const faviconkitUrl = `https://api.faviconkit.com/${domain}/144`;
+    const faviconkitResponse = await axios.head(faviconkitUrl);
+      
+    return faviconkitResponse.status === 200 ? faviconkitUrl : "/placeholder.jpg";
+
+    // return faviconResponse.status === 200 ? faviconUrl : "/placeholder.jpg";
   } catch {
     return "/placeholder.jpg"; // Return default placeholder image in case of error
   }
@@ -74,7 +94,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const type = (searchParams.get("type") as StoryType) || "topstories";
   const page = parseInt(searchParams.get("page") || "1", 10);
-  const limit = 30; // Number of stories to fetch at once (adjust this as needed)
+  const limit = 10; // Number of stories to fetch at once (adjust this as needed)
 
   try {
     const storyIds = await fetchStoryIds(type);
@@ -155,8 +175,14 @@ async function fetchMetadata(url: string) {
   try {
     const response = await axios.get(url, {
       headers: {
-        "User-Agent": "Mozilla/5.0", // Some sites block requests without a user-agent
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        Accept:
+          "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
       },
+      timeout: 10000, // 10 second timeout
+      maxRedirects: 5,
     });
     const $ = cheerio.load(response.data);
 
@@ -164,14 +190,38 @@ async function fetchMetadata(url: string) {
 
     // 1️⃣ EXTRACT IMAGE
     let image =
-      $('meta[property="og:image" i]').attr("content")?.trim() ||
-      $('meta[name="twitter:image" i]').attr("content")?.trim() ||
-      $('meta[itemprop="image" i]').attr("content")?.trim() ||
-      "";
+  $('meta[property="og:image" i]').attr("content")?.trim() ||
+  $('meta[name="twitter:image" i]').attr("content")?.trim() ||
+  $('meta[itemprop="image" i]').attr("content")?.trim() ||
+  $('link[rel="image_src"]').attr("href") ||
+  $('.article-featured-image img').attr("src") ||
+  $('.post-thumbnail img').attr("src") ||
+  $('img[width][height]')
+    .filter((_, el) => {
+      const width = $(el).attr('width');
+      const height = $(el).attr('height');
+      return Boolean(width && height && parseInt(width) > 200 && parseInt(height) > 200);
+    })
+    .first()
+    .attr('src') ||
+  '';
 
     if (image && !image.startsWith("http")) {
       image = new URL(image, baseUrl.origin).href; // Convert relative to absolute URL
     }
+
+    // Special handling for YouTube videos
+    if (
+      baseUrl.hostname.includes("youtube.com") ||
+      baseUrl.hostname.includes("youtu.be")
+    ) {
+      const urlParams = new URLSearchParams(url); // Use URLSearchParams for easier parameter access
+      const videoId = urlParams.get("v") || urlParams.get("id"); // Check for both "v" and "id" parameters
+    
+      if (videoId) {
+          image =`https://img.youtube.com/vi/${videoId}/hqdefault.jpg`// Use ytimg for thumbnails
+    }
+  }
 
     // 2️⃣ EXTRACT DESCRIPTION FROM META TAGS
     let description =
@@ -183,8 +233,10 @@ async function fetchMetadata(url: string) {
       $('meta[name="dc.description" i]').attr("content")?.trim() ||
       $('meta[name="abstract" i]').attr("content")?.trim() ||
       $("p.abstract").text().trim() ||
-      "";
-      
+      $('meta[name="description"]').attr('content') ||
+      $('meta[property="og:description"]').attr('content') ||
+      '';
+
     // 1️⃣ Skip description fetching if it's a PDF
     if (url.toLowerCase().endsWith(".pdf")) {
       description = "";
@@ -239,12 +291,12 @@ async function fetchMetadata(url: string) {
       image: image || "/placeholder.jpg",
       description: description || "",
     };
-  } catch (error) {
-    console.error(`Error fetching metadata for ${url}:`, error);
-    return {
-      image: "/placeholder.jpg",
-      description: "",
-    };
-  }
+  } 
+catch (error) {
+  console.error(`Error fetching metadata for ${url}:`, error);
+  return {
+    image: "/placeholder.jpg",
+    description: "",
+  };
 }
-
+}
