@@ -192,10 +192,10 @@ export default function Home() {
     <main className="min-h-screen bg-gray-100 dark:bg-gray-900">
       <header className="fixed top-0 left-0 right-0 z-10 bg-white dark:bg-gray-800 shadow-md p-4">
         <div className="flex justify-between items-center">
-          <h1 className="text-2xl font-bold">HackerReels</h1>
+          <h1 className="text-2xl font-bold">HackerTok</h1>
           <div className="flex items-center space-x-4">
             <CategoryFilter currentCategory={category} onCategoryChange={handleCategoryChange} />
-            <button onClick={toggleSavedPosts} className="text-gray-600 dark:text-white">
+            <button onClick={toggleSavedPosts} className=" dark:text-white">
               <Bookmark className="h-6 w-6" />
             </button>
             <AboutOverlay />

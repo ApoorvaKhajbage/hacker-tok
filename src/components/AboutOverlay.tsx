@@ -11,11 +11,10 @@ export function AboutOverlay() {
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>About HackerReels</DialogTitle>
+          <DialogTitle>About HackerTok</DialogTitle>
         </DialogHeader>
         <p>
-          HackerReels is a TikTok-style app that presents Hacker News stories in a short reel format.
-          Browse through top stories, like and save your favorites, and share interesting content with your network.
+        HackerTok transforms the way you experience Hacker News by presenting its stories in a modern format, much like TikTok. Enjoy an engaging, swipeable interface.
         </p>
       </DialogContent>
     </Dialog>

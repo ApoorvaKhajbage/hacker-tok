@@ -45,7 +45,7 @@ function isGibberish(text: string): boolean {
 async function fetchFavicon(url: string): Promise<string> {
   try {
     if (!url || url === "undefined" || url === "") {
-      return "/placeholder.jpg"; // Fallback for missing URL
+      return "/placeholder.png"; // Fallback for missing URL
     }
 
     const baseUrl = new URL(url);
@@ -85,11 +85,11 @@ async function fetchFavicon(url: string): Promise<string> {
 
     return faviconkitResponse.status === 200
       ? faviconkitUrl
-      : "/placeholder.jpg";
+      : "/placeholder.png";
 
     // return faviconResponse.status === 200 ? faviconUrl : "/placeholder.jpg";
   } catch {
-    return "/placeholder.jpg"; // Return default placeholder image in case of error
+    return "/placeholder.png"; // Return default placeholder image in case of error
   }
 }
 
@@ -133,15 +133,11 @@ async function fetchStory(id: number, index: number): Promise<Story> {
     const response = await axios.get(`${HN_API_BASE}/item/${id}.json`);
     const story = response.data;
 
-    let image = "/placeholder.jpg";
+    let image = "/placeholder.png";
     let description = "";
 
     const url = story.url || `https://news.ycombinator.com/item?id=${id}`;
 
-    // Handle Hacker News URL specifically
-    if (url.includes("news.ycombinator.com")) {
-      image = "/hn-logo.png"; // Specific logo for Hacker News
-    }
 
     // Fetch metadata **only for the first 10 stories** to avoid too many requests
     if (story.url && index < 10) {
@@ -149,9 +145,34 @@ async function fetchStory(id: number, index: number): Promise<Story> {
       image = metadata.image;
       description = metadata.description;
     }
+    // special case for youtube 
+    if (story.url && story.url.includes("youtube.com")) {
+      const videoId = getYouTubeVideoId(story.url);
+      if (videoId) {
+        image = `https://img.youtube.com/vi/${videoId}/0.jpg`;
+        return {
+          ...story,
+          id,
+          image,
+          description: truncateDescription(cleanDescription(description), 200),
+          url,
+        };
+      }
+    }
+    // Handle Hacker News URL specifically
+    if (url.includes("news.ycombinator.com") || url.includes("ycombinator.com")) {
+      image = "/hn-logo.png";
+      return {
+        ...story,
+        id,
+        image,
+        description: truncateDescription(cleanDescription(description), 200),
+        url,
+      };
+    }
 
     // Fetch favicon **only if metadata image is missing**
-    if ((!image || image === "/placeholder.jpg") && story.url) {
+    if ((!image || image === "/placeholder.png") && story.url) {
       image = await fetchFavicon(story.url);
     }
 
@@ -168,7 +189,7 @@ async function fetchStory(id: number, index: number): Promise<Story> {
       id,
       title: "Error fetching story",
       description: "",
-      image: "/placeholder.jpg",
+      image: "/placeholder.png",
       url: `https://news.ycombinator.com/item?id=${id}`,
       score: 0,
       time: 0,
@@ -217,12 +238,6 @@ async function fetchMetadata(url: string) {
 
     if (image && !image.startsWith("http")) {
       image = new URL(image, baseUrl.origin).href; // Convert relative to absolute URL
-    }
-
-    // Special handling for YouTube videos
-    const videoId = getYouTubeVideoId(url);
-    if (videoId) {
-      image = `https://img.youtube.com/vi/${videoId}/0.jpg`;
     }
 
     // 2️⃣ EXTRACT DESCRIPTION FROM META TAGS
@@ -290,13 +305,13 @@ async function fetchMetadata(url: string) {
     }
 
     return {
-      image: image || "/placeholder.jpg",
+      image: image || "/placeholder.png",
       description: description || "",
     };
   } catch (error) {
     console.error(`Error fetching metadata for ${url}:`, error);
     return {
-      image: "/placeholder.jpg",
+      image: "/placeholder.png",
       description: "",
     };
   }

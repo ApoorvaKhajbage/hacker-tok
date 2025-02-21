@@ -35,7 +35,7 @@ export function StoryCard({ story, isLiked, onLike, onShare }: StoryCardProps) {
         {/* Image container with a 16:9 aspect ratio */}
         <div className="relative w-full h-64 sm:h-80 md:h-96 mb-4 rounded-lg overflow-hidden bg-gray-100">
           <img
-            src={story.image || "/placeholder.jpg"}
+            src={story.image || "/placeholder.png"}
             alt={story.title}
             className="w-full h-full object-content object-center"
           />
