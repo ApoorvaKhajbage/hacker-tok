@@ -25,18 +25,19 @@ function truncateDescription(description: string, maxLength: number): string {
 function isGibberish(text: string): boolean {
   // Check for PDF markers
   if (text.startsWith("%PDF")) return true;
-  
+
   // Check for CSS code
-  if (text.includes("font-family:") || text.includes("text-anchor:")) return true;
-  
+  if (text.includes("font-family:") || text.includes("text-anchor:"))
+    return true;
+
   // Check if text appears to be a JSON-like object
   const trimmed = text.trim();
   if (trimmed.startsWith("{") && trimmed.endsWith("}")) return true;
-  
+
   // Alternatively, check for multiple occurrences of internal keys like "AUI_"
   const internalKeyMatches = trimmed.match(/AUI_[A-Z0-9_]+/g);
   if (internalKeyMatches && internalKeyMatches.length > 1) return true;
-  
+
   return false;
 }
 
@@ -81,8 +82,10 @@ async function fetchFavicon(url: string): Promise<string> {
     console.log(domain);
     const faviconkitUrl = `https://api.faviconkit.com/${domain}/144`;
     const faviconkitResponse = await axios.head(faviconkitUrl);
-      
-    return faviconkitResponse.status === 200 ? faviconkitUrl : "/placeholder.jpg";
+
+    return faviconkitResponse.status === 200
+      ? faviconkitUrl
+      : "/placeholder.jpg";
 
     // return faviconResponse.status === 200 ? faviconUrl : "/placeholder.jpg";
   } catch {
@@ -95,7 +98,6 @@ export async function GET(request: Request) {
   const type = (searchParams.get("type") as StoryType) || "topstories";
   const page = parseInt(searchParams.get("page") || "1", 10);
   const limit = 30;
-
   try {
     const storyIds = await fetchStoryIds(type);
     const start = (page - 1) * limit;
@@ -195,38 +197,33 @@ async function fetchMetadata(url: string) {
 
     // 1️⃣ EXTRACT IMAGE
     let image =
-  $('meta[property="og:image" i]').attr("content")?.trim() ||
-  $('meta[name="twitter:image" i]').attr("content")?.trim() ||
-  $('meta[itemprop="image" i]').attr("content")?.trim() ||
-  $('link[rel="image_src"]').attr("href") ||
-  $('.article-featured-image img').attr("src") ||
-  $('.post-thumbnail img').attr("src") ||
-  $('img[width][height]')
-    .filter((_, el) => {
-      const width = $(el).attr('width');
-      const height = $(el).attr('height');
-      return Boolean(width && height && parseInt(width) > 200 && parseInt(height) > 200);
-    })
-    .first()
-    .attr('src') ||
-  '';
+      $('meta[property="og:image" i]').attr("content")?.trim() ||
+      $('meta[name="twitter:image" i]').attr("content")?.trim() ||
+      $('meta[itemprop="image" i]').attr("content")?.trim() ||
+      $('link[rel="image_src"]').attr("href") ||
+      $(".article-featured-image img").attr("src") ||
+      $(".post-thumbnail img").attr("src") ||
+      $("img[width][height]")
+        .filter((_, el) => {
+          const width = $(el).attr("width");
+          const height = $(el).attr("height");
+          return Boolean(
+            width && height && parseInt(width) > 200 && parseInt(height) > 200
+          );
+        })
+        .first()
+        .attr("src") ||
+      "";
 
     if (image && !image.startsWith("http")) {
       image = new URL(image, baseUrl.origin).href; // Convert relative to absolute URL
     }
 
     // Special handling for YouTube videos
-    if (
-      baseUrl.hostname.includes("youtube.com") ||
-      baseUrl.hostname.includes("youtu.be")
-    ) {
-      const urlParams = new URLSearchParams(url); // Use URLSearchParams for easier parameter access
-      const videoId = urlParams.get("v") || urlParams.get("id"); // Check for both "v" and "id" parameters
-    
-      if (videoId) {
-          image =`https://img.youtube.com/vi/${videoId}/hqdefault.jpg`// Use ytimg for thumbnails
+    const videoId = getYouTubeVideoId(url);
+    if (videoId) {
+      image = `https://img.youtube.com/vi/${videoId}/0.jpg`;
     }
-  }
 
     // 2️⃣ EXTRACT DESCRIPTION FROM META TAGS
     let description =
@@ -238,9 +235,9 @@ async function fetchMetadata(url: string) {
       $('meta[name="dc.description" i]').attr("content")?.trim() ||
       $('meta[name="abstract" i]').attr("content")?.trim() ||
       $("p.abstract").text().trim() ||
-      $('meta[name="description"]').attr('content') ||
-      $('meta[property="og:description"]').attr('content') ||
-      '';
+      $('meta[name="description"]').attr("content") ||
+      $('meta[property="og:description"]').attr("content") ||
+      "";
 
     // 1️⃣ Skip description fetching if it's a PDF
     if (url.toLowerCase().endsWith(".pdf")) {
@@ -296,12 +293,27 @@ async function fetchMetadata(url: string) {
       image: image || "/placeholder.jpg",
       description: description || "",
     };
-  } 
-catch (error) {
-  console.error(`Error fetching metadata for ${url}:`, error);
-  return {
-    image: "/placeholder.jpg",
-    description: "",
-  };
+  } catch (error) {
+    console.error(`Error fetching metadata for ${url}:`, error);
+    return {
+      image: "/placeholder.jpg",
+      description: "",
+    };
+  }
 }
+function getYouTubeVideoId(url: string): string | null {
+  try {
+    const parsedUrl = new URL(url);
+    if (parsedUrl.hostname.includes("youtu.be")) {
+      // For short URLs, the video ID is the pathname without the leading slash.
+      return parsedUrl.pathname.slice(1);
+    } else if (parsedUrl.hostname.includes("youtube.com")) {
+      // For youtube.com URLs, the video ID is usually in the "v" parameter.
+      return parsedUrl.searchParams.get("v");
+    }
+    return null;
+  } catch (err) {
+    console.error("Error parsing YouTube video ID:", err);
+    return null;
+  }
 }

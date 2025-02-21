@@ -33,11 +33,11 @@ export function StoryCard({ story, isLiked, onLike, onShare }: StoryCardProps) {
       {/* Main content area grows to fill space */}
       <CardContent className="flex-1 flex flex-col p-4 sm:p-6">
         {/* Image container with a 16:9 aspect ratio */}
-        <div className="relative w-full aspect-video mb-4 rounded-lg overflow-hidden">
+        <div className="relative w-full h-64 sm:h-80 md:h-96 mb-4 rounded-lg overflow-hidden bg-gray-100">
           <img
             src={story.image || "/placeholder.jpg"}
             alt={story.title}
-            className="w-full h-full object-contain object-center"
+            className="w-full h-full object-content object-center"
           />
         </div>
 
