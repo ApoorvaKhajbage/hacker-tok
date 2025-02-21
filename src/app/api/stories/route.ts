@@ -7,12 +7,18 @@ import { getDomain } from "@/utils/utils";
 
 const HN_API_BASE = "https://hacker-news.firebaseio.com/v0";
 
+// In-memory cache for story IDs per type.
+const cachedStoryIds: { [key in StoryType]?: { data: number[]; timestamp: number } } = {};
+
+// Cache duration: 5 minutes.
+const CACHE_DURATION = 5 * 60 * 1000;
+
 // Clean and truncate description
 function cleanDescription(description: string): string {
   return description
-    .replace(/https?:\/\/[^\s]+/g, "") // Remove URLs
-    .replace(/<[^>]*>/g, "") // Remove HTML tags
-    .replace(/[^\x20-\x7E]/g, "") // Remove non-ASCII characters
+    .replace(/https?:\/\/[^\s]+/g, "")
+    .replace(/<[^>]*>/g, "")
+    .replace(/[^\x20-\x7E]/g, "")
     .trim();
 }
 
@@ -23,94 +29,95 @@ function truncateDescription(description: string, maxLength: number): string {
 }
 
 function isGibberish(text: string): boolean {
-  // Check for PDF markers
   if (text.startsWith("%PDF")) return true;
-
-  // Check for CSS code
-  if (text.includes("font-family:") || text.includes("text-anchor:"))
-    return true;
-
-  // Check if text appears to be a JSON-like object
+  if (text.includes("font-family:") || text.includes("text-anchor:")) return true;
   const trimmed = text.trim();
   if (trimmed.startsWith("{") && trimmed.endsWith("}")) return true;
-
-  // Alternatively, check for multiple occurrences of internal keys like "AUI_"
   const internalKeyMatches = trimmed.match(/AUI_[A-Z0-9_]+/g);
   if (internalKeyMatches && internalKeyMatches.length > 1) return true;
-
   return false;
 }
 
-// Fetch favicon
+// Helper: Extract YouTube video ID from a URL.
+function getYouTubeVideoId(url: string): string | null {
+  try {
+    const parsedUrl = new URL(url);
+    if (parsedUrl.hostname.includes("youtu.be")) {
+      return parsedUrl.pathname.slice(1);
+    }
+    if (parsedUrl.hostname.includes("youtube.com")) {
+      return parsedUrl.searchParams.get("v");
+    }
+    return null;
+  } catch (err) {
+    console.error("Error parsing YouTube video ID:", err);
+    return null;
+  }
+}
+
+// Fetch favicon (unchanged)
 async function fetchFavicon(url: string): Promise<string> {
   try {
     if (!url || url === "undefined" || url === "") {
-      return "/placeholder.png"; // Fallback for missing URL
+      return "/placeholder.png";
     }
-
     const baseUrl = new URL(url);
-
-    // If it's from ArXiv, return ArXiv's logo URL directly
     if (baseUrl.hostname.includes("arxiv.org")) {
-      return "https://static.arxiv.org/static/browse/0.3.4/images/arxiv-logo-fb.png"; // ✅ External URL for ArXiv logo
+      return "https://static.arxiv.org/static/browse/0.3.4/images/arxiv-logo-fb.png";
     }
-
-    // First, attempt to fetch the favicon from the <link rel="icon"> tag
     const response = await axios.get(url);
     const $ = cheerio.load(response.data);
     let faviconUrl =
       $('link[rel="icon"]').attr("href") ||
       $('link[rel="shortcut icon"]').attr("href");
-
     if (faviconUrl) {
-      // Convert relative favicon URLs to absolute
       if (!faviconUrl.startsWith("http")) {
         faviconUrl = new URL(faviconUrl, baseUrl.origin).href;
       }
     } else {
-      // Fallback to default `/favicon.ico`
       faviconUrl = `${baseUrl.origin}/favicon.ico`;
     }
-
-    // Check if the favicon URL is valid
     const faviconResponse = await axios.head(faviconUrl);
     if (faviconResponse.status === 200) {
       return faviconUrl;
     }
-    // filter the domain it should not include www.
     const domain = getDomain(url);
     console.log(domain);
     const faviconkitUrl = `https://api.faviconkit.com/${domain}/144`;
     const faviconkitResponse = await axios.head(faviconkitUrl);
-
-    return faviconkitResponse.status === 200
-      ? faviconkitUrl
-      : "/placeholder.png";
-
-    // return faviconResponse.status === 200 ? faviconUrl : "/placeholder.jpg";
+    return faviconkitResponse.status === 200 ? faviconkitUrl : "/placeholder.png";
   } catch {
-    return "/placeholder.png"; // Return default placeholder image in case of error
+    return "/placeholder.png";
   }
 }
 
+// GET handler using caching and Promise.allSettled.
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const type = (searchParams.get("type") as StoryType) || "topstories";
   const page = parseInt(searchParams.get("page") || "1", 10);
   const limit = 30;
   try {
-    const storyIds = await fetchStoryIds(type);
+    // Use in-memory cache for story IDs.
+    const cached = cachedStoryIds[type];
+    let storyIds: number[];
+    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+      storyIds = cached.data;
+    } else {
+      const response = await axios.get(`${HN_API_BASE}/${type}.json`);
+      storyIds = [...new Set(response.data as number[])];
+      cachedStoryIds[type] = { data: storyIds, timestamp: Date.now() };
+    }
+
     const start = (page - 1) * limit;
     const end = start + limit;
     const storiesToFetch = storyIds.slice(start, end);
 
-    // Use Promise.allSettled to avoid failing the entire batch.
     const storyResults = await Promise.allSettled(
       storiesToFetch.map((id, index) => fetchStory(id, index))
     );
 
-    // Map results: if a fetch fails, provide a fallback story.
-    const stories = storyResults.map(result =>
+    const stories = storyResults.map((result) =>
       result.status === "fulfilled"
         ? result.value
         : {
@@ -133,37 +140,31 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     console.error("Error fetching stories:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch stories" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to fetch stories" }, { status: 500 });
   }
 }
-
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function fetchStoryIds(type: StoryType): Promise<number[]> {
   const response = await axios.get(`${HN_API_BASE}/${type}.json`);
-  return [...new Set(response.data as number[])]; // Ensure IDs are unique
+  return [...new Set(response.data as number[])];
 }
 
 async function fetchStory(id: number, index: number): Promise<Story> {
   try {
     const response = await axios.get(`${HN_API_BASE}/item/${id}.json`);
     const story = response.data;
-
     let image = "/placeholder.png";
     let description = "";
-
     const url = story.url || `https://news.ycombinator.com/item?id=${id}`;
 
-
-    // Fetch metadata **only for the first 10 stories** to avoid too many requests
-    if (story.url && index < 10) {
+    // Fetch metadata only for the first 5 stories to reduce timeout risk.
+    if (story.url && index < 5) {
       const metadata = await fetchMetadata(story.url);
       image = metadata.image;
       description = metadata.description;
     }
-    // special case for youtube 
-    if (story.url && story.url.includes("youtube.com")) {
+    // Special handling for YouTube.
+    if (story.url && (story.url.includes("youtube.com") || story.url.includes("youtu.be"))) {
       const videoId = getYouTubeVideoId(story.url);
       if (videoId) {
         image = `https://img.youtube.com/vi/${videoId}/0.jpg`;
@@ -176,7 +177,7 @@ async function fetchStory(id: number, index: number): Promise<Story> {
         };
       }
     }
-    // Handle Hacker News URL specifically
+    // Handle Hacker News URL specifically.
     if (url.includes("news.ycombinator.com") || url.includes("ycombinator.com")) {
       image = "/hn-logo.png";
       return {
@@ -187,12 +188,10 @@ async function fetchStory(id: number, index: number): Promise<Story> {
         url,
       };
     }
-
-    // Fetch favicon **only if metadata image is missing**
+    // If metadata didn't yield an image, fetch favicon.
     if ((!image || image === "/placeholder.png") && story.url) {
       image = await fetchFavicon(story.url);
     }
-
     return {
       ...story,
       id,
@@ -222,18 +221,15 @@ async function fetchMetadata(url: string) {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-        Accept:
-          "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.5",
       },
-      timeout: 10000, // 10 second timeout
+      timeout: 10000,
       maxRedirects: 5,
     });
     const $ = cheerio.load(response.data);
-
     const baseUrl = new URL(url);
 
-    // 1️⃣ EXTRACT IMAGE
     let image =
       $('meta[property="og:image" i]').attr("content")?.trim() ||
       $('meta[name="twitter:image" i]').attr("content")?.trim() ||
@@ -245,19 +241,15 @@ async function fetchMetadata(url: string) {
         .filter((_, el) => {
           const width = $(el).attr("width");
           const height = $(el).attr("height");
-          return Boolean(
-            width && height && parseInt(width) > 200 && parseInt(height) > 200
-          );
+          return Boolean(width && height && parseInt(width) > 200 && parseInt(height) > 200);
         })
         .first()
         .attr("src") ||
       "";
-
     if (image && !image.startsWith("http")) {
-      image = new URL(image, baseUrl.origin).href; // Convert relative to absolute URL
+      image = new URL(image, baseUrl.origin).href;
     }
 
-    // 2️⃣ EXTRACT DESCRIPTION FROM META TAGS
     let description =
       $('meta[property="og:description" i]').attr("content")?.trim() ||
       $('meta[name="description" i]').attr("content")?.trim() ||
@@ -270,42 +262,30 @@ async function fetchMetadata(url: string) {
       $('meta[name="description"]').attr("content") ||
       $('meta[property="og:description"]').attr("content") ||
       "";
-
-    // 1️⃣ Skip description fetching if it's a PDF
     if (url.toLowerCase().endsWith(".pdf")) {
       description = "";
     } else {
-      // 4️⃣ IF STILL NO DESCRIPTION, SCAN FOR PARAGRAPHS & pick the first non-gibberish
       if (!description) {
         const paragraphs: string[] = $("p")
           .map((_, el) => $(el).text().trim())
           .get()
           .filter((p) => p.length > 0);
-
-        // Sort by length descending
         paragraphs.sort((a, b) => b.length - a.length);
-
         let selectedParagraph = "";
         for (const p of paragraphs) {
           const cleaned = cleanDescription(p);
-          // If not gibberish, we pick it
           if (!isGibberish(cleaned)) {
             selectedParagraph = cleaned;
             break;
           }
         }
-
         description = selectedParagraph;
       }
-
-      // 5️⃣ IF STILL no description, fallback to body snippet
       if (!description) {
         const bodyText = $("body").text().trim();
         let snippet = bodyText.slice(0, 300);
         if (bodyText.length > 300) snippet += "...";
-
         const cleanedSnippet = cleanDescription(snippet);
-        // If snippet isn't gibberish, use it
         if (!isGibberish(cleanedSnippet)) {
           description = cleanedSnippet;
         } else {
@@ -313,14 +293,11 @@ async function fetchMetadata(url: string) {
         }
       }
     }
-
-    // CLEAN & TRUNCATE
     description = cleanDescription(description);
     description = truncateDescription(description, 200);
     if (isGibberish(description)) {
       description = "";
     }
-
     return {
       image: image || "/placeholder.png",
       description: description || "",
@@ -331,21 +308,5 @@ async function fetchMetadata(url: string) {
       image: "/placeholder.png",
       description: "",
     };
-  }
-}
-function getYouTubeVideoId(url: string): string | null {
-  try {
-    const parsedUrl = new URL(url);
-    if (parsedUrl.hostname.includes("youtu.be")) {
-      // For short URLs, the video ID is the pathname without the leading slash.
-      return parsedUrl.pathname.slice(1);
-    } else if (parsedUrl.hostname.includes("youtube.com")) {
-      // For youtube.com URLs, the video ID is usually in the "v" parameter.
-      return parsedUrl.searchParams.get("v");
-    }
-    return null;
-  } catch (err) {
-    console.error("Error parsing YouTube video ID:", err);
-    return null;
   }
 }

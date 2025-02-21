@@ -5,7 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'HackerReels',
+  title: 'HackerTok',
   description: 'Browse Hacker News stories in a TikTok-style format',
 }
 
