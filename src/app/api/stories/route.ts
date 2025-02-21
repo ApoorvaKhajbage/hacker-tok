@@ -104,13 +104,30 @@ export async function GET(request: Request) {
     const end = start + limit;
     const storiesToFetch = storyIds.slice(start, end);
 
-    const stories = await Promise.all(
+    // Use Promise.allSettled to avoid failing the entire batch.
+    const storyResults = await Promise.allSettled(
       storiesToFetch.map((id, index) => fetchStory(id, index))
+    );
+
+    // Map results: if a fetch fails, provide a fallback story.
+    const stories = storyResults.map(result =>
+      result.status === "fulfilled"
+        ? result.value
+        : {
+            id: 0,
+            title: "Error fetching story",
+            description: "",
+            image: "/placeholder.png",
+            url: `https://news.ycombinator.com/item?id=0`,
+            score: 0,
+            time: 0,
+            by: "",
+            descendants: 0,
+          }
     );
 
     return NextResponse.json(stories, {
       headers: {
-        // Cache for 5 minutes at the edge, and allow stale content while revalidating for 1 minute.
         "Cache-Control": "s-maxage=300, stale-while-revalidate=60",
       },
     });
