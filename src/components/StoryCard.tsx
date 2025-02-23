@@ -32,12 +32,17 @@ export function StoryCard({ story, isLiked, onLike, onShare }: StoryCardProps) {
     >
       {/* Main content area grows to fill space */}
       <CardContent className="flex-1 flex flex-col p-4 sm:p-6">
-        {/* Image container with a 16:9 aspect ratio */}
-        <div className="relative w-full h-64 sm:h-80 md:h-96 mb-4 rounded-lg overflow-hidden bg-gray-100">
+        {/* Image container with a centered image */}
+        {/* Image container with dynamic handling for favicons */}
+        <div className="relative w-full h-64 sm:h-80 md:h-96 mb-4 rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center">
           <img
             src={story.image || "/placeholder.png"}
             alt={story.title}
-            className="w-full h-full object-content object-center"
+            className={`object-contain ${
+              story.image?.includes("favicon")
+                ? "w-30 h-40"
+                : "max-w-full max-h-full"
+            }`}
           />
         </div>
 
