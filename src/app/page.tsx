@@ -204,7 +204,7 @@ export default function Home() {
       </header>
 
       {/* Container for full-screen cards */}
-      <div ref={containerRef} className="pt-16 snap-y snap-mandatory h-screen w-full overflow-y-auto">
+      <div ref={containerRef} className="pt-16 snap-y snap-mandatory h-screen w-full overflow-y-scroll">
         {loading && (!storiesByCategory[category] || storiesByCategory[category]?.length === 0) ? (
           // Central spinner for initial load.
           <div className="flex flex-col items-center justify-center h-full">

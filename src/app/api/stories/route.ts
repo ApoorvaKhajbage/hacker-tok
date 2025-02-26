@@ -13,6 +13,24 @@ const cachedStoryIds: { [key in StoryType]?: { data: number[]; timestamp: number
 // Cache duration: 5 minutes.
 const CACHE_DURATION = 5 * 60 * 1000;
 
+// Vercel Edge Function Config
+export const config = {
+  runtime: "edge",
+  maxDuration: 10, // Ensure function doesn't time out on free plan
+};
+
+// ✅ Axios instance with retry logic
+const axiosInstance = axios.create({
+  timeout: 5000, // 5 seconds timeout
+  headers: {
+    "User-Agent":
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+  },
+});
+
+// ✅ Helper: Delay function to avoid rate limits
+const delay = (ms: number) => new Promise((res) => setTimeout(res, ms));
+
 // Clean and truncate description
 function cleanDescription(description: string): string {
   return description
@@ -99,12 +117,9 @@ export async function GET(request: Request) {
   const limit = 30;
   try {
     // Use in-memory cache for story IDs.
-    const cached = cachedStoryIds[type];
-    let storyIds: number[];
-    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-      storyIds = cached.data;
-    } else {
-      const response = await axios.get(`${HN_API_BASE}/${type}.json`);
+    let storyIds = cachedStoryIds[type]?.data;
+    if (!storyIds || Date.now() - cachedStoryIds[type]!.timestamp > CACHE_DURATION) {
+      const response = await axiosInstance.get(`${HN_API_BASE}/${type}.json`);
       storyIds = [...new Set(response.data as number[])];
       cachedStoryIds[type] = { data: storyIds, timestamp: Date.now() };
     }
@@ -113,27 +128,36 @@ export async function GET(request: Request) {
     const end = start + limit;
     const storiesToFetch = storyIds.slice(start, end);
 
-    const storyResults = await Promise.allSettled(
-      storiesToFetch.map((id, index) => fetchStory(id, index))
-    );
+    // ✅ Process stories in **batches** of 5 (to prevent 504 timeout)
+    const batchSize = 5;
+    const fetchedStories: Story[] = [];
 
-    const stories = storyResults.map((result) =>
-      result.status === "fulfilled"
-        ? result.value
-        : {
-            id: 0,
-            title: "Error fetching story",
-            description: "",
-            image: "/placeholder.png",
-            url: `https://news.ycombinator.com/item?id=0`,
-            score: 0,
-            time: 0,
-            by: "",
-            descendants: 0,
-          }
-    );
+    for (let i = 0; i < storiesToFetch.length; i += batchSize) {
+      const batch = storiesToFetch.slice(i, i + batchSize);
+      const results = await Promise.allSettled(batch.map((id,index) => fetchStory(id, index)));
 
-    return NextResponse.json(stories, {
+      fetchedStories.push(
+        ...results.map((res) =>
+          res.status === "fulfilled"
+            ? res.value
+            : {
+                id: 0,
+                title: "Error fetching story",
+                description: "",
+                image: "/placeholder.png",
+                url: `https://news.ycombinator.com/item?id=0`,
+                score: 0,
+                time: 0,
+                by: "",
+                descendants: 0,
+              }
+        )
+      );
+
+      await delay(500); // ✅ Add slight delay between batches
+    }
+
+    return NextResponse.json(fetchedStories, {
       headers: {
         "Cache-Control": "s-maxage=300, stale-while-revalidate=60",
       },
@@ -143,6 +167,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Failed to fetch stories" }, { status: 500 });
   }
 }
+
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function fetchStoryIds(type: StoryType): Promise<number[]> {
   const response = await axios.get(`${HN_API_BASE}/${type}.json`);
