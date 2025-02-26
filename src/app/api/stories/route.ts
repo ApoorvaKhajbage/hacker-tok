@@ -16,7 +16,7 @@ const CACHE_DURATION = 5 * 60 * 1000;
 // Vercel Edge Function Config
 export const config = {
   runtime: "edge",
-  maxDuration: 10, // Ensure function doesn't time out on free plan
+  maxDuration: 30, // Ensure function doesn't time out on free plan
 };
 
 // ✅ Axios instance with retry logic
@@ -73,7 +73,7 @@ function getYouTubeVideoId(url: string): string | null {
   }
 }
 
-// Fetch favicon (unchanged)
+// Fetch favicon
 async function fetchFavicon(url: string): Promise<string> {
   try {
     if (!url || url === "undefined" || url === "") {
