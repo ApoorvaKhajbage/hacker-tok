@@ -102,7 +102,7 @@ GET /api/stories?type=topstories&page=1
 
 ## **💡 Features & Future Improvements**  
 🔹 **Current Features:**  
-✅ Infinite scrolling with smooth snap 
+✅ Infinite scrolling with smooth snap          
 ✅ **Metadata fetching** (images, favicons, descriptions)  
 ✅ **Optimized API requests** (cached, fast, lazy-loaded)  
 ✅ **User interactions** (like, save, share)  
