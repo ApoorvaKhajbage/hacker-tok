@@ -4,14 +4,12 @@ import * as cheerio from "cheerio";
 import { Story, StoryType } from "@/lib/types";
 import { URL } from "url";
 import { getDomain } from "@/utils/utils";
+import redis from "@/lib/redis";
 
 const HN_API_BASE = "https://hacker-news.firebaseio.com/v0";
-
-// In-memory cache for story IDs per type.
-const cachedStoryIds: { [key in StoryType]?: { data: number[]; timestamp: number } } = {};
-
-// Cache duration: 5 minutes.
-const CACHE_DURATION = 5 * 60 * 1000;
+const STORY_TTL = 1800; // Cache stories for 30 minutes
+const METADATA_TTL = 86400; // Cache metadata for 24 hours
+const FAVICON_TTL = 86400; // Cache favicons for 24 hours
 
 // Vercel Edge Function Config
 export const config = {
@@ -28,15 +26,23 @@ const axiosInstance = axios.create({
   },
 });
 
-// ✅ Helper: Delay function to avoid rate limits
-const delay = (ms: number) => new Promise((res) => setTimeout(res, ms));
-
 // Clean and truncate description
 function cleanDescription(description: string): string {
   return description
-    .replace(/https?:\/\/[^\s]+/g, "")
-    .replace(/<[^>]*>/g, "")
-    .replace(/[^\x20-\x7E]/g, "")
+    .replace(/https?:\/\/[^\s]+/g, "") // Remove URLs
+    .replace(/<[^>]*>/g, "") // Remove HTML tags
+    .replace(/[^\x20-\x7E]/g, "") // Remove non-ASCII characters
+    .split("\n") // Split into lines to filter gibberish
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return false; // ✅ Remove empty lines
+      if (trimmed.length < 10) return false; // ✅ Ignore very short lines
+      if (/^\{.*\}$/.test(trimmed)) return false; // ✅ Ignore JSON-like objects
+      if (/^\s*(const|let|var|function|class|\(|\{)/.test(trimmed)) return false; // ✅ Ignore code-like lines
+      if (/^\/\//.test(trimmed)) return false; // ✅ Ignore lines starting with //
+      return true;
+    })
+    .join(" ")
     .trim();
 }
 
@@ -79,82 +85,136 @@ async function fetchFavicon(url: string): Promise<string> {
     if (!url || url === "undefined" || url === "") {
       return "/placeholder.png";
     }
+
     const baseUrl = new URL(url);
+    const domain = getDomain(url);
+    const cacheKey = `favicon:${domain}`;
+
+    // ✅ Check Redis cache
+    const cachedFavicon = await redis.get(cacheKey);
+    if (cachedFavicon) return cachedFavicon;
+
+    // ✅ Special case for ArXiv
     if (baseUrl.hostname.includes("arxiv.org")) {
       return "https://static.arxiv.org/static/browse/0.3.4/images/arxiv-logo-fb.png";
     }
-    const response = await axios.get(url);
-    const $ = cheerio.load(response.data);
-    let faviconUrl =
-      $('link[rel="icon"]').attr("href") ||
-      $('link[rel="shortcut icon"]').attr("href");
-    if (faviconUrl) {
-      if (!faviconUrl.startsWith("http")) {
-        faviconUrl = new URL(faviconUrl, baseUrl.origin).href;
+
+    let faviconUrl = `${baseUrl.origin}/favicon.ico`;
+
+    // ✅ First, check if /favicon.ico exists (HEAD request)
+    try {
+      const faviconResponse = await axios.head(faviconUrl, { timeout: 3000 });
+      if (faviconResponse.status === 200) {
+        await redis.setex(cacheKey, 86400, faviconUrl); // Cache for 24 hours
+        return faviconUrl;
       }
-    } else {
-      faviconUrl = `${baseUrl.origin}/favicon.ico`;
+    } catch (error) {
+      console.log(error)
+      console.warn(`Favicon.ico not found for ${domain}, trying other methods.`);
     }
-    const faviconResponse = await axios.head(faviconUrl);
-    if (faviconResponse.status === 200) {
-      return faviconUrl;
+
+    // ✅ Fetch page and check for <link rel="icon">
+    try {
+      const response = await axios.get(url, { timeout: 5000 });
+      const $ = cheerio.load(response.data);
+      const metaFavicon =
+        $('link[rel="icon"]').attr("href") ||
+        $('link[rel="shortcut icon"]').attr("href");
+
+      if (metaFavicon) {
+        if (!metaFavicon.startsWith("http")) {
+          faviconUrl = new URL(metaFavicon, baseUrl.origin).href;
+        } else {
+          faviconUrl = metaFavicon;
+        }
+
+        await redis.setex(cacheKey, 86400, faviconUrl);
+        return faviconUrl;
+      }
+    } catch (error) {
+      console.warn(`Failed to fetch page for favicon: ${error}`);
     }
-    const domain = getDomain(url);
-    console.log(domain);
+
+    // ✅ Last fallback: Use FaviconKit API
     const faviconkitUrl = `https://api.faviconkit.com/${domain}/144`;
-    const faviconkitResponse = await axios.head(faviconkitUrl);
-    return faviconkitResponse.status === 200 ? faviconkitUrl : "/placeholder.png";
-  } catch {
+    try {
+      const faviconkitResponse = await axios.head(faviconkitUrl, { timeout: 3000 });
+      if (faviconkitResponse.status === 200) {
+        await redis.setex(cacheKey, 86400, faviconkitUrl);
+        return faviconkitUrl;
+      }
+    } catch (error) {
+      console.log(error)
+      console.warn(`FaviconKit API failed for ${domain}`);
+    }
+
+    // ✅ Final fallback
+    await redis.setex(cacheKey, FAVICON_TTL, "/placeholder.png");
+    return "/placeholder.png";
+  } catch (error) {
+    console.error(`Error fetching favicon for ${url}:`, error);
     return "/placeholder.png";
   }
 }
 
-// GET handler using caching and Promise.allSettled.
+// GET handler using optimized caching & parallel processing.
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const type = (searchParams.get("type") as StoryType) || "topstories";
   const page = parseInt(searchParams.get("page") || "1", 10);
+  const cacheKey = `stories:${type}:${page}`;
   const limit = 30;
+
   try {
-    // Use in-memory cache for story IDs.
-    let storyIds = cachedStoryIds[type]?.data;
-    if (!storyIds || Date.now() - cachedStoryIds[type]!.timestamp > CACHE_DURATION) {
-      const response = await axiosInstance.get(`${HN_API_BASE}/${type}.json`);
-      storyIds = [...new Set(response.data as number[])];
-      cachedStoryIds[type] = { data: storyIds, timestamp: Date.now() };
+    // ✅ Check Redis cache for stories (fastest path).
+    const cachedStories = await redis.get(cacheKey);
+    if (cachedStories) {
+      return NextResponse.json(JSON.parse(cachedStories), {
+        headers: {
+          "Cache-Control": "s-maxage=300, stale-while-revalidate=60",
+        },
+      });
+    }
+
+    // ✅ Fetch story IDs with Redis caching
+    const storyIdsCacheKey = `storyIds:${type}`;
+    let storyIds: number[] = [];
+    
+    const cachedStoryIds = await redis.get(storyIdsCacheKey);
+    if (cachedStoryIds) {
+      storyIds = JSON.parse(cachedStoryIds);
+    } else {
+      storyIds = await fetchStoryIds(type);
+      if (storyIds.length > 0) {
+        // ✅ Cache story IDs for 10 minutes (not too long to keep content fresh).
+        await redis.setex(storyIdsCacheKey, 600, JSON.stringify(storyIds));
+      }
     }
 
     const start = (page - 1) * limit;
     const end = start + limit;
     const storiesToFetch = storyIds.slice(start, end);
 
-    // ✅ Process stories in **batches** of 5 (to prevent 504 timeout)
-    const batchSize = 5;
+    // ✅ Process stories in **larger batches** (e.g., 10 instead of 5)
+    const batchSize = 10;
     const fetchedStories: Story[] = [];
 
     for (let i = 0; i < storiesToFetch.length; i += batchSize) {
       const batch = storiesToFetch.slice(i, i + batchSize);
-      const results = await Promise.allSettled(batch.map((id,index) => fetchStory(id, index)));
+
+      // ✅ Parallel fetch (no artificial delay)
+      const results = await Promise.allSettled(batch.map((id) => fetchStory(id)));
 
       fetchedStories.push(
-        ...results.map((res) =>
-          res.status === "fulfilled"
-            ? res.value
-            : {
-                id: 0,
-                title: "Error fetching story",
-                description: "",
-                image: "/placeholder.png",
-                url: `https://news.ycombinator.com/item?id=0`,
-                score: 0,
-                time: 0,
-                by: "",
-                descendants: 0,
-              }
-        )
+        ...results
+          .filter((res) => res.status === "fulfilled")
+          .map((res) => (res as PromiseFulfilledResult<Story>).value)
       );
+    }
 
-      await delay(500); // ✅ Add slight delay between batches
+    // ✅ Cache only successful stories to prevent storing error placeholders
+    if (fetchedStories.length > 0) {
+      await redis.setex(cacheKey, STORY_TTL, JSON.stringify(fetchedStories));
     }
 
     return NextResponse.json(fetchedStories, {
@@ -168,62 +228,98 @@ export async function GET(request: Request) {
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function fetchStoryIds(type: StoryType): Promise<number[]> {
-  const response = await axios.get(`${HN_API_BASE}/${type}.json`);
-  return [...new Set(response.data as number[])];
+  const cacheKey = `storyIds:${type}`;
+
+  try {
+    // ✅ 1️⃣ Check Redis Cache First
+    const cachedStoryIds = await redis.get(cacheKey);
+    if (cachedStoryIds) {
+      return JSON.parse(cachedStoryIds);
+    }
+
+    // ✅ 2️⃣ Fetch from Hacker News API with a Timeout & Retries
+    const response = await axiosInstance.get(`${HN_API_BASE}/${type}.json`, {
+      timeout: 5000, // ⏳ Set timeout of 5 seconds
+    });
+
+    if (!response.data || !Array.isArray(response.data)) {
+      throw new Error("Invalid response from Hacker News API");
+    }
+
+    // ✅ 3️⃣ Remove Duplicates & Store in Redis
+    const storyIds = [...new Set(response.data as number[])];
+
+    await redis.setex(cacheKey, 600, JSON.stringify(storyIds)); // Cache for 10 minutes
+
+    return storyIds;
+  } catch (error) {
+    console.error(`Error fetching story IDs for ${type}:`, error);
+    return []; // Return an empty array on failure (prevents API from breaking)
+  }
 }
 
-async function fetchStory(id: number, index: number): Promise<Story> {
+async function fetchStory(id: number): Promise<Story> {
   try {
+    const storyCacheKey = `story:${id}`;
+    // ✅ Check Redis Cache for Full Story First (Fastest Path)
+    const cachedStory = await redis.get(storyCacheKey);
+    if (cachedStory) {
+      return JSON.parse(cachedStory);
+    }
+
+    // ✅ Fetch Story from Hacker News API
     const response = await axios.get(`${HN_API_BASE}/item/${id}.json`);
     const story = response.data;
-    let image = "/placeholder.png";
-    let description = "";
     const url = story.url || `https://news.ycombinator.com/item?id=${id}`;
 
-    // Fetch metadata only for the first 5 stories to reduce timeout risk.
-    if (story.url && index < 5) {
-      const metadata = await fetchMetadata(story.url);
-      image = metadata.image;
-      description = metadata.description;
-    }
-    // Special handling for YouTube.
-    if (story.url && (story.url.includes("youtube.com") || story.url.includes("youtu.be"))) {
-      const videoId = getYouTubeVideoId(story.url);
+    let image = "/placeholder.png";
+    let description = "";
+
+    // ✅ YouTube Handling (Get Thumbnail Early, but Continue Fetching Description)
+    if (url.includes("youtube.com") || url.includes("youtu.be")) {
+      const videoId = getYouTubeVideoId(url);
       if (videoId) {
         image = `https://img.youtube.com/vi/${videoId}/0.jpg`;
-        return {
-          ...story,
-          id,
-          image,
-          description: truncateDescription(cleanDescription(description), 200),
-          url,
-        };
       }
     }
-    // Handle Hacker News URL specifically.
-    if (url.includes("news.ycombinator.com") || url.includes("ycombinator.com")) {
-      image = "/hn-logo.png";
-      return {
-        ...story,
-        id,
-        image,
-        description: truncateDescription(cleanDescription(description), 200),
-        url,
-      };
+
+    // ✅ Check Redis Cache for Metadata Before Fetching
+    const metadataCacheKey = `metadata:${url}`;
+    let metadata = await redis.get(metadataCacheKey);
+
+    if (!metadata) {
+      metadata = JSON.stringify(await fetchMetadata(url));
+      await redis.setex(metadataCacheKey, METADATA_TTL, metadata);
     }
-    // If metadata didn't yield an image, fetch favicon.
-    if ((!image || image === "/placeholder.png") && story.url) {
-      image = await fetchFavicon(story.url);
+
+    // ✅ Parse Metadata & Extract Data
+    const parsedMetadata = JSON.parse(metadata);
+    image = parsedMetadata.image || image; // Use fetched image only if no YouTube image
+    description = parsedMetadata.description || "";
+
+    // ✅ Parallel Fetch for Favicon (Only If Needed)
+    if (image === "/placeholder.png") {
+      const faviconPromise = fetchFavicon(url);
+      const [faviconResult] = await Promise.allSettled([faviconPromise]);
+
+      if (faviconResult.status === "fulfilled") {
+        image = faviconResult.value;
+      }
     }
-    return {
+
+    // ✅ Final Story Object
+    const storyData = {
       ...story,
-      id,
       image,
       description: truncateDescription(cleanDescription(description), 200),
       url,
     };
+
+    // ✅ Cache Full Story (Including Metadata)
+    await redis.setex(storyCacheKey, STORY_TTL, JSON.stringify(storyData));
+
+    return storyData;
   } catch (error) {
     console.error(`Error fetching story ${id}:`, error);
     return {
