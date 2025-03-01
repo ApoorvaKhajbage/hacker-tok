@@ -7,13 +7,13 @@ import { getDomain } from "@/utils/utils";
 import redis from "@/lib/redis";
 
 const HN_API_BASE = "https://hacker-news.firebaseio.com/v0";
-const STORY_TTL = 1800; // Cache stories for 30 minutes
+const STORY_TTL = 900; // Cache stories for 15 minutes
 const METADATA_TTL = 86400; // Cache metadata for 24 hours
 const FAVICON_TTL = 86400; // Cache favicons for 24 hours
 
 export const config = {
   runtime: "nodejs", // Use Node.js serverless functions on Vercel
-  maxDuration: 10,   // 10 seconds timeout (adjust as needed)
+  maxDuration: 10, // 10 seconds timeout (adjust as needed)
 };
 
 // ✅ Axios instance with retry logic
@@ -37,7 +37,8 @@ function cleanDescription(description: string): string {
       if (!trimmed) return false; // ✅ Remove empty lines
       if (trimmed.length < 10) return false; // ✅ Ignore very short lines
       if (/^\{.*\}$/.test(trimmed)) return false; // ✅ Ignore JSON-like objects
-      if (/^\s*(const|let|var|function|class|\(|\{)/.test(trimmed)) return false; // ✅ Ignore code-like lines
+      if (/^\s*(const|let|var|function|class|\(|\{)/.test(trimmed))
+        return false; // ✅ Ignore code-like lines
       if (/^\/\//.test(trimmed)) return false; // ✅ Ignore lines starting with //
       return true;
     })
@@ -53,7 +54,8 @@ function truncateDescription(description: string, maxLength: number): string {
 
 function isGibberish(text: string): boolean {
   if (text.startsWith("%PDF")) return true;
-  if (text.includes("font-family:") || text.includes("text-anchor:")) return true;
+  if (text.includes("font-family:") || text.includes("text-anchor:"))
+    return true;
   const trimmed = text.trim();
   if (trimmed.startsWith("{") && trimmed.endsWith("}")) return true;
   const internalKeyMatches = trimmed.match(/AUI_[A-Z0-9_]+/g);
@@ -108,8 +110,10 @@ async function fetchFavicon(url: string): Promise<string> {
         return faviconUrl;
       }
     } catch (error) {
-      console.log(error)
-      console.warn(`Favicon.ico not found for ${domain}, trying other methods.`);
+      console.log(error);
+      console.warn(
+        `Favicon.ico not found for ${domain}, trying other methods.`
+      );
     }
 
     // ✅ Fetch page and check for <link rel="icon">
@@ -137,13 +141,15 @@ async function fetchFavicon(url: string): Promise<string> {
     // ✅ Last fallback: Use FaviconKit API
     const faviconkitUrl = `https://api.faviconkit.com/${domain}/144`;
     try {
-      const faviconkitResponse = await axios.head(faviconkitUrl, { timeout: 3000 });
+      const faviconkitResponse = await axios.head(faviconkitUrl, {
+        timeout: 3000,
+      });
       if (faviconkitResponse.status === 200) {
         await redis.setex(cacheKey, 86400, faviconkitUrl);
         return faviconkitUrl;
       }
     } catch (error) {
-      console.log(error)
+      console.log(error);
       console.warn(`FaviconKit API failed for ${domain}`);
     }
 
@@ -165,7 +171,7 @@ export async function GET(request: Request) {
   const limit = 30;
 
   try {
-    // ✅ Check Redis cache for stories (fastest path).
+    // 1. Check Redis cache for the full stories list for this page.
     const cachedStories = await redis.get(cacheKey);
     if (cachedStories) {
       return NextResponse.json(JSON.parse(cachedStories), {
@@ -175,18 +181,16 @@ export async function GET(request: Request) {
       });
     }
 
-    // ✅ Fetch story IDs with Redis caching
+    // 2. Get the list of story IDs (cached separately)
     const storyIdsCacheKey = `storyIds:${type}`;
     let storyIds: number[] = [];
-    
     const cachedStoryIds = await redis.get(storyIdsCacheKey);
     if (cachedStoryIds) {
       storyIds = JSON.parse(cachedStoryIds);
     } else {
       storyIds = await fetchStoryIds(type);
       if (storyIds.length > 0) {
-        // ✅ Cache story IDs for 10 minutes (not too long to keep content fresh).
-        await redis.setex(storyIdsCacheKey, 600, JSON.stringify(storyIds));
+        await redis.setex(storyIdsCacheKey, STORY_TTL, JSON.stringify(storyIds));
       }
     }
 
@@ -194,29 +198,44 @@ export async function GET(request: Request) {
     const end = start + limit;
     const storiesToFetch = storyIds.slice(start, end);
 
-    // ✅ Process stories in **larger batches** (e.g., 10 instead of 5)
-    const batchSize = 10;
-    const fetchedStories: Story[] = [];
+    // 3. Use MGET to try to fetch all story caches in one command.
+    const storyKeys = storiesToFetch.map((id) => `story:${id}`);
+    const cachedStoriesArray = await redis.mget(...storyKeys);
+    
+    const missingIndices: number[] = [];
+    const storiesFromCache: (Story | null)[] = cachedStoriesArray.map((value, index) => {
+      if (value) {
+        return JSON.parse(value);
+      } else {
+        missingIndices.push(index);
+        return null;
+      }
+    });
 
-    for (let i = 0; i < storiesToFetch.length; i += batchSize) {
-      const batch = storiesToFetch.slice(i, i + batchSize);
+    // 4. For any missing stories, fetch them individually.
+    const fetchedMissingStories = await Promise.all(
+      missingIndices.map((i) => fetchStory(storiesToFetch[i]))
+    );
+    
+    // Merge cached and freshly fetched stories.
+    const finalStories: Story[] = storiesFromCache.map((story) =>
+      story !== null ? story : fetchedMissingStories.shift() as Story
+    );
 
-      // ✅ Parallel fetch (no artificial delay)
-      const results = await Promise.allSettled(batch.map((id) => fetchStory(id)));
-
-      fetchedStories.push(
-        ...results
-          .filter((res) => res.status === "fulfilled")
-          .map((res) => (res as PromiseFulfilledResult<Story>).value)
-      );
+    // 5. Use a pipeline to set the missing stories in Redis (only for those that were missing).
+    if (finalStories.length > 0) {
+      const pipeline = redis.pipeline();
+      storyKeys.forEach((key, idx) => {
+        if (!cachedStoriesArray[idx]) {
+          pipeline.setex(key, STORY_TTL, JSON.stringify(finalStories[idx]));
+        }
+      });
+      // Also cache the whole page result
+      pipeline.setex(cacheKey, STORY_TTL, JSON.stringify(finalStories));
+      await pipeline.exec();
     }
 
-    // ✅ Cache only successful stories to prevent storing error placeholders
-    if (fetchedStories.length > 0) {
-      await redis.setex(cacheKey, STORY_TTL, JSON.stringify(fetchedStories));
-    }
-
-    return NextResponse.json(fetchedStories, {
+    return NextResponse.json(finalStories, {
       headers: {
         "Cache-Control": "s-maxage=300, stale-while-revalidate=60",
       },
@@ -226,6 +245,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Failed to fetch stories" }, { status: 500 });
   }
 }
+
 
 async function fetchStoryIds(type: StoryType): Promise<number[]> {
   const cacheKey = `storyIds:${type}`;
@@ -249,8 +269,10 @@ async function fetchStoryIds(type: StoryType): Promise<number[]> {
     // ✅ 3️⃣ Remove Duplicates & Store in Redis
     const storyIds = [...new Set(response.data as number[])];
 
-    await redis.setex(cacheKey, 600, JSON.stringify(storyIds)); // Cache for 10 minutes
-
+    // Use a pipeline to cache the story IDs
+    const pipeline = redis.pipeline();
+    pipeline.setex(cacheKey, STORY_TTL, JSON.stringify(storyIds)); // Cache for 10 minutes
+    await pipeline.exec();
     return storyIds;
   } catch (error) {
     console.error(`Error fetching story IDs for ${type}:`, error);
@@ -341,7 +363,8 @@ async function fetchMetadata(url: string) {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        Accept:
+          "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.5",
       },
       timeout: 10000,
@@ -361,7 +384,9 @@ async function fetchMetadata(url: string) {
         .filter((_, el) => {
           const width = $(el).attr("width");
           const height = $(el).attr("height");
-          return Boolean(width && height && parseInt(width) > 200 && parseInt(height) > 200);
+          return Boolean(
+            width && height && parseInt(width) > 200 && parseInt(height) > 200
+          );
         })
         .first()
         .attr("src") ||
