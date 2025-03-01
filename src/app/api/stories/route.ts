@@ -7,9 +7,9 @@ import { getDomain } from "@/utils/utils";
 import redis from "@/lib/redis";
 
 const HN_API_BASE = "https://hacker-news.firebaseio.com/v0";
-const STORY_TTL = 900; // Cache stories for 15 minutes
-const METADATA_TTL = 86400; // Cache metadata for 24 hours
-const FAVICON_TTL = 86400; // Cache favicons for 24 hours
+const STORY_TTL = 1800; // Cache stories for 30 minutes
+const METADATA_TTL = 43200; // Cache metadata for 12 hours
+const FAVICON_TTL = 43200; // Cache favicons for 12 hours
 
 export const config = {
   runtime: "nodejs", // Use Node.js serverless functions on Vercel
