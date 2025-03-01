@@ -190,7 +190,11 @@ export async function GET(request: Request) {
     } else {
       storyIds = await fetchStoryIds(type);
       if (storyIds.length > 0) {
-        await redis.setex(storyIdsCacheKey, STORY_TTL, JSON.stringify(storyIds));
+        await redis.setex(
+          storyIdsCacheKey,
+          STORY_TTL,
+          JSON.stringify(storyIds)
+        );
       }
     }
 
@@ -201,25 +205,27 @@ export async function GET(request: Request) {
     // 3. Use MGET to try to fetch all story caches in one command.
     const storyKeys = storiesToFetch.map((id) => `story:${id}`);
     const cachedStoriesArray = await redis.mget(...storyKeys);
-    
+
     const missingIndices: number[] = [];
-    const storiesFromCache: (Story | null)[] = cachedStoriesArray.map((value, index) => {
-      if (value) {
-        return JSON.parse(value);
-      } else {
-        missingIndices.push(index);
-        return null;
+    const storiesFromCache: (Story | null)[] = cachedStoriesArray.map(
+      (value, index) => {
+        if (value) {
+          return JSON.parse(value);
+        } else {
+          missingIndices.push(index);
+          return null;
+        }
       }
-    });
+    );
 
     // 4. For any missing stories, fetch them individually.
     const fetchedMissingStories = await Promise.all(
       missingIndices.map((i) => fetchStory(storiesToFetch[i]))
     );
-    
+
     // Merge cached and freshly fetched stories.
     const finalStories: Story[] = storiesFromCache.map((story) =>
-      story !== null ? story : fetchedMissingStories.shift() as Story
+      story !== null ? story : (fetchedMissingStories.shift() as Story)
     );
 
     // 5. Use a pipeline to set the missing stories in Redis (only for those that were missing).
@@ -242,10 +248,12 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     console.error("Error fetching stories:", error);
-    return NextResponse.json({ error: "Failed to fetch stories" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to fetch stories" },
+      { status: 500 }
+    );
   }
 }
-
 
 async function fetchStoryIds(type: StoryType): Promise<number[]> {
   const cacheKey = `storyIds:${type}`;
@@ -316,9 +324,13 @@ async function fetchStory(id: number): Promise<Story> {
 
     // ✅ Parse Metadata & Extract Data
     const parsedMetadata = JSON.parse(metadata);
-    image = parsedMetadata.image || image; // Use fetched image only if no YouTube image
-    description = parsedMetadata.description || "";
 
+    // If the URL is YouTube, keep the thumbnail; otherwise, allow metadata.image to override.
+    if (!(url.includes("youtube.com") || url.includes("youtu.be"))) {
+      image = parsedMetadata.image || image;
+    }
+    description = parsedMetadata.description || "";
+    
     // ✅ Parallel Fetch for Favicon (Only If Needed)
     if (image === "/placeholder.png") {
       const faviconPromise = fetchFavicon(url);
