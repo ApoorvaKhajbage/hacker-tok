@@ -11,10 +11,9 @@ const STORY_TTL = 1800; // Cache stories for 30 minutes
 const METADATA_TTL = 86400; // Cache metadata for 24 hours
 const FAVICON_TTL = 86400; // Cache favicons for 24 hours
 
-// Vercel Edge Function Config
 export const config = {
-  runtime: "edge",
-  maxDuration: 30, // Ensure function doesn't time out on free plan
+  runtime: "nodejs", // Use Node.js serverless functions on Vercel
+  maxDuration: 10,   // 10 seconds timeout (adjust as needed)
 };
 
 // ✅ Axios instance with retry logic
