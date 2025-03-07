@@ -1,26 +1,26 @@
 # **HackerTok** 
 *A TikTok-style web app for browsing Hacker News stories*  
 
-## **📌 Overview**  
+## **Overview**  
 HackerTok is a modern, **TikTok-style web application** that allows users to browse **Hacker News stories** in a **full-screen, scrollable format**, similar to YouTube Shorts. The app is built with **Next.js**, **React**, **TailwindCSS**, and integrates the **Hacker News API** to fetch the latest trending tech news.  
 
-🚀 **Features:**  
-✔ Infinite scrolling with **smooth snap navigation**  
-✔ Full-screen story cards with images, descriptions, and metadata  
-✔ Like & save your favorite stories **(stored in localStorage)**  
-✔ **Fast & optimized API** with caching for **low latency**  
-✔ Lazy loading **story metadata** (images, descriptions, favicons)  
-✔ Category-based filtering (**Top, New, Best, Ask, Show, Job**)  
-✔ Responsive **mobile-first UI**  
+**Features:**  
+- Infinite scrolling with **smooth snap navigation**  
+- Full-screen story cards with images, descriptions, and metadata  
+- Like & save your favorite stories **(stored in localStorage)**  
+- **Fast & optimized API** with caching for **low latency**  
+- Lazy loading **story metadata** (images, descriptions, favicons)  
+- Category-based filtering (**Top, New, Best, Ask, Show, Job**)  
+- Responsive **mobile-first UI**  
 
 ---
 
-## **🚀 Demo**  
-🌐 **Live Deployment**: [HackerTok on Vercel](https://hacker-tok.vercel.app) 
+## **Demo**  
+**Live Deployment**: [HackerTok on Vercel](https://hacker-tok.vercel.app) 
 
 ---
 
-## **🛠️ Tech Stack**  
+## **Tech Stack**  
 - **Frontend:** Next.js (React), TailwindCSS, TypeScript  
 - **Backend:** Next.js API routes, Cheerio for metadata extraction  
 - **Data Source:** [Hacker News API](https://github.com/HackerNews/API)  
@@ -28,7 +28,7 @@ HackerTok is a modern, **TikTok-style web application** that allows users to bro
 
 ---
 
-## **📦 Installation & Setup**  
+## **Installation & Setup**  
 ### **1️⃣ Clone the Repository**  
 ```sh
 git clone https://github.com/your-username/hackertok.git
@@ -48,11 +48,11 @@ npm run dev
 # or
 yarn dev
 ```
-📌 Open **`http://localhost:3000`** in your browser.  
+Open **`http://localhost:3000`** in your browser.  
 
 ---
 
-## **🖥️ Folder Structure**  
+## **Folder Structure**  
 ```
 HackerTok/
 │── public/                          # Static assets (favicons, placeholder images, etc.)
@@ -86,35 +86,30 @@ HackerTok/
 
 ---
 
-## **🚀 API Optimization**  
+## **API Optimization**  
 HackerTok uses an optimized **Next.js API** to fetch Hacker News stories efficiently.  
-✔ Uses **in-memory caching** to reduce API calls  
-✔ **Lazy-loads metadata** (images, favicons) 
-✔ Implements **error handling & fallback UI** for failed requests  
+- Uses **in-memory caching** to reduce API calls  
+- **Lazy-loads metadata** (images, favicons) 
+- Implements **error handling & fallback UI** for failed requests  
 
 ### **Example API Request:**  
 ```sh
 GET /api/stories?type=topstories&page=1
 ```
-📌 Returns paginated **Hacker News stories** in JSON format.  
+Returns paginated **Hacker News stories** in JSON format.  
 
 ---
 
-## **💡 Features & Future Improvements**  
-🔹 **Current Features:**  
-✅ Infinite scrolling with smooth snap          
-✅ **Metadata fetching** (images, favicons, descriptions)  
-✅ **Optimized API requests** (cached, fast, lazy-loaded)  
-✅ **User interactions** (like, save, share)  
-
-✨ **Planned Features:**  
-🔹 Implement **dark mode** 🌙  
-🔹 Add **server-side caching with Redis** 🗄️  
-🔹 Explore **AI-powered summarization** for stories 🤖  
+## **Features & Future Improvements**  
+**Current Features:**  
+- Infinite scrolling with smooth snap          
+- **Metadata fetching** (images, favicons, descriptions)  
+- **Optimized API requests** (cached, fast, lazy-loaded)  
+- **User interactions** (like, save, share)  
 
 ---
 
-## **🔗 Contributing**  
+## **Contributing**  
 Contributions are welcome! Feel free to open issues and submit pull requests.  
 
 1. **Fork the repository**  
@@ -130,11 +125,11 @@ Contributions are welcome! Feel free to open issues and submit pull requests.
    ```sh
    git push origin feature-new-improvement
    ```
-5. **Open a Pull Request** 🚀  
+5. **Open a Pull Request**  
 
 ---
 
-## **📜 License**  
+## **License**  
 This project is **open-source** and available under the **MIT License**.  
 
 📌 **Author:** [Apoorva Khajbage](https://github.com/ApoorvaKhajbage)  
