@@ -22,10 +22,14 @@ HackerTok is a modern, **TikTok-style web application** that allows users to bro
 
 ## Screenshots
 
-![HackerTok Home](./images/hackertok-home.png)
+![HackerTok Home](./public/hackertok-home.png)
 *HackerTok home screen with story cards.*
 
-![HackerTok Mobile](./images/hackertok-mobile.png)
+![HackerTok Saved Posts](./public/savedPosts.png)
+*HackerTok Saved Posts*
+
+![HackerTok Mobile](./public/hackertok-mobile.png) 
+
 *Responsive mobile view of HackerTok.*
 
 ---
