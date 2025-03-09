@@ -2,13 +2,13 @@
 *A TikTok-style web app for browsing Hacker News stories*  
 
 ## **Overview**  
-HackerTok is a modern, **TikTok-style web application** that allows users to browse **Hacker News stories** in a **full-screen, scrollable format**, similar to YouTube Shorts. The app is built with **Next.js**, **React**, **TailwindCSS**, and integrates the **Hacker News API** to fetch the latest trending tech news.  
+HackerTok is a modern, **TikTok-style web application** that allows users to browse **Hacker News stories**. The app is built with **Next.js**, **React**, **TailwindCSS**, and it leverages the Hacker News API to fetch the latest tech news. To ensure fast, reliable performance, HackerTok implements aggressive caching and optimization strategies using Redis.
 
 **Features:**  
 - Infinite scrolling with **smooth snap navigation**  
 - Full-screen story cards with images, descriptions, and metadata  
 - Like & save your favorite stories **(stored in localStorage)**  
-- **Fast & optimized API** with caching for **low latency**  
+- **Fast & optimized API** with caching  using Redis for **low latency**
 - Lazy loading **story metadata** (images, descriptions, favicons)  
 - Category-based filtering (**Top, New, Best, Ask, Show, Job**)  
 - Responsive **mobile-first UI**  
@@ -20,9 +20,20 @@ HackerTok is a modern, **TikTok-style web application** that allows users to bro
 
 ---
 
+## Screenshots
+
+![HackerTok Home](./images/hackertok-home.png)
+*HackerTok home screen with story cards.*
+
+![HackerTok Mobile](./images/hackertok-mobile.png)
+*Responsive mobile view of HackerTok.*
+
+---
+
 ## **Tech Stack**  
 - **Frontend:** Next.js (React), TailwindCSS, TypeScript  
-- **Backend:** Next.js API routes, Cheerio for metadata extraction  
+- **Backend:** Next.js API routes, Cheerio for metadata extraction
+- **Caching & Optimization:** Redis for reducing external API calls and latency
 - **Data Source:** [Hacker News API](https://github.com/HackerNews/API)  
 - **Deployment:** Vercel  
 
@@ -90,7 +101,24 @@ HackerTok/
 HackerTok uses an optimized **Next.js API** to fetch Hacker News stories efficiently.  
 - Uses **in-memory caching** to reduce API calls  
 - **Lazy-loads metadata** (images, favicons) 
-- Implements **error handling & fallback UI** for failed requests  
+- Implements **error handling & fallback UI** for failed requests
+
+To deliver a snappy user experience and reduce latency, HackerTok uses Redis for caching at multiple levels:
+
+- Story IDs Cache:
+Cached for 10–15 minutes to reduce repeated calls to the Hacker News API. This minimizes the load on the API while keeping the data reasonably fresh.
+
+- Full Story Cache:
+Each story (including metadata) is cached for 15 minutes. This ensures that once a story is fetched and processed, subsequent requests are served instantly from Redis.
+
+- Metadata & Favicon Cache:
+Metadata (image and description) and favicons are cached for 12 hours since they rarely change. This dramatically reduces the need for expensive external requests and scraping.
+
+- Redis Pipelining & MGET:
+The API uses Redis pipelining and MGET to batch multiple cache reads/writes into a single network round-trip. This efficient batching reduces the total number of commands and helps you stay within Upstash’s free-tier limits.
+
+- Asynchronous Updates & Stale-While-Revalidate:
+When data is being refreshed, the API can serve slightly stale data while updating the cache in the background. This pattern ensures fast response times even under high load.
 
 ### **Example API Request:**  
 ```sh
@@ -101,11 +129,19 @@ Returns paginated **Hacker News stories** in JSON format.
 ---
 
 ## **Features & Future Improvements**  
-**Current Features:**  
-- Infinite scrolling with smooth snap          
-- **Metadata fetching** (images, favicons, descriptions)  
-- **Optimized API requests** (cached, fast, lazy-loaded)  
-- **User interactions** (like, save, share)  
+**Current Features:** 
+
+- Infinite scrolling with smooth snap navigation
+- Metadata fetching (images, favicons, descriptions) optimized via Redis
+- Optimized API requests (caching, batching, pipelining)
+- User interactions (like, save, share)
+- Responsive mobile-first UI
+
+**Future Improvements:**
+
+- Further fine-tuning of TTLs based on usage
+- Hash-based caching to consolidate related keys
+- Asynchronous background updates for metadata
 
 ---
 
