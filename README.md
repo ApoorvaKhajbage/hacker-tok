@@ -1,12 +1,12 @@
 # **HackerTok** 
-*A TikTok-style web app for browsing Hacker News stories*  
+*A TikTok-style web interface for browsing Hacker News stories*  
 
 ## **Overview**  
-HackerTok is a modern, **TikTok-style web application** that allows users to browse **Hacker News stories**. The app is built with **Next.js**, **React**, **TailwindCSS**, and it leverages the Hacker News API to fetch the latest tech news. To ensure fast, reliable performance, HackerTok implements aggressive caching and optimization strategies using Redis.
+HackerTok is a modern, **TikTok-style web application** that allows users to browse **Hacker News stories**. The app is built with **Next.js**, **React**, **TailwindCSS**, and it uses the Hacker News API to fetch the latest tech news. To ensure fast, reliable performance, HackerTok implements caching and optimization strategies using Redis.
 
 **Features:**  
 - Infinite scrolling with **smooth snap navigation**  
-- Full-screen story cards with images, descriptions, and metadata  
+- Story cards with images, descriptions, and metadata  
 - Like & save your favorite stories **(stored in localStorage)**  
 - **Fast & optimized API** with caching  using Redis for **low latency**
 - Lazy loading **story metadata** (images, descriptions, favicons)  
@@ -35,8 +35,7 @@ HackerTok is a modern, **TikTok-style web application** that allows users to bro
 ---
 
 ## **Tech Stack**  
-- **Frontend:** Next.js (React), TailwindCSS, TypeScript  
-- **Backend:** Next.js API routes, Cheerio for metadata extraction
+- **Core:** Next.js, TailwindCSS, TypeScript, Cheerio for metadata extraction
 - **Caching & Optimization:** Redis for reducing external API calls and latency
 - **Data Source:** [Hacker News API](https://github.com/HackerNews/API)  
 - **Deployment:** Vercel  
@@ -44,20 +43,20 @@ HackerTok is a modern, **TikTok-style web application** that allows users to bro
 ---
 
 ## **Installation & Setup**  
-### **1️⃣ Clone the Repository**  
+### **1.Clone the Repository**  
 ```sh
 git clone https://github.com/your-username/hackertok.git
 cd hackertok
 ```
 
-### **2️⃣ Install Dependencies**  
+### **2.Install Dependencies**  
 ```sh
 npm install
 # or
 yarn install
 ```
 
-### **3️⃣ Run the Development Server**  
+### **3.Run the Development Server**  
 ```sh
 npm run dev
 # or
@@ -132,17 +131,7 @@ Returns paginated **Hacker News stories** in JSON format.
 
 ---
 
-## **Features & Future Improvements**  
-**Current Features:** 
-
-- Infinite scrolling with smooth snap navigation
-- Metadata fetching (images, favicons, descriptions) optimized via Redis
-- Optimized API requests (caching, batching, pipelining)
-- User interactions (like, save, share)
-- Responsive mobile-first UI
-
-**Future Improvements:**
-
+## **Future Improvements**  
 - Further fine-tuning of TTLs based on usage
 - Hash-based caching to consolidate related keys
 - Asynchronous background updates for metadata
@@ -171,13 +160,5 @@ Contributions are welcome! Feel free to open issues and submit pull requests.
 
 ## **License**  
 This project is **open-source** and available under the **MIT License**.  
-
-📌 **Author:** [Apoorva Khajbage](https://github.com/ApoorvaKhajbage)  
-🌟 **Star the repo** if you find it useful! ⭐  
-
----
-
-### **📌 Final Notes**  
-HackerTok is designed to be a **fast, engaging, and user-friendly** way to consume tech news in a **reels-style experience**. Hope you enjoy using it! 🚀🎉  
 
 ---
